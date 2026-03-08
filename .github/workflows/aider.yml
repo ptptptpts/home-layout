@@ -6,7 +6,7 @@ on:
 
 # 1. 여기서 모델 버전을 전역 변수로 관리합니다.
 env:
-  GEMINI_MODEL: gemini-3.0-flash
+  GEMINI_MODEL: gemini-3-flash-preview
 
 jobs:
   aider-job:

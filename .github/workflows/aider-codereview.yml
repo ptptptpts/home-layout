@@ -1,0 +1,81 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+env:
+  GEMINI_MODEL: gemini-3-flash-preview
+
+jobs:
+  review:
+    # AI가 만든 PR이거나 직접 만든 PR 모두 리뷰
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: pip install google-genai
+
+      - name: 🔍 Gemini AI Code Review
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          CURRENT_MODEL: ${{ env.GEMINI_MODEL }}
+        run: |
+          # 기준 브랜치(main)와 현재 PR 브랜치 간의 차이 추출
+          git fetch origin main
+          git diff origin/main...HEAD > changes.diff
+          
+          python -c "
+          from google import genai
+          import os
+          
+          client = genai.Client(api_key=os.environ['GEMINI_API_KEY'])
+          
+          with open('changes.diff', 'r') as f:
+              diff_content = f.read()
+          with open('AI_RULES.md', 'r') as f:
+              rules_content = f.read()
+              
+          prompt = f'''
+          당신은 시니어 소프트웨어 엔지니어입니다. 다음 코드 변경사항(diff)을 제공된 AI_RULES.md를 바탕으로 리뷰해주세요.
+          
+          [AI_RULES.md]
+          {rules_content}
+          
+          [변경사항]
+          {diff_content}
+          
+          요구사항:
+          1. TDD 및 계층형 아키텍처(Engine, Logic, UI) 준수 여부를 확인하세요.
+          2. 잠재적 버그나 성능 이슈, 엣지 케이스를 지적하세요.
+          3. Base64 인코딩이나 MD5 체크섬 로직이 있다면 올바른지 확인하세요.
+          4. 한국어로 친절하고 전문적인 톤으로 답변하세요.
+          '''
+          
+          response = client.models.generate_content(
+              model=os.environ['CURRENT_MODEL'],
+              contents=prompt
+          )
+          
+          with open('review_comment.md', 'w') as f:
+              f.write('## 🧐 Gemini AI Code Review\n\n')
+              f.write(response.text)
+          "
+          
+          # PR 번호를 환경 변수에서 가져와 댓글 작성
+          gh pr comment ${{ github.event.pull_request.number }} --body-file review_comment.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
